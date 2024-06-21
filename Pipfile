@@ -1,0 +1,16 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+streamlit = "*"
+matplotlib = "*"
+scikit-learn = "*"
+seaborn = "*"
+imbalanced-learn = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.12"
