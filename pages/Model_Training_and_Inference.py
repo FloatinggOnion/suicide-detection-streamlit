@@ -312,3 +312,13 @@ else:  # Test Best Model page
         st.pyplot(plot_risk_probabilities(probabilities))
         
         st.write('### Interpretation')
+        if interpreted_risk == 'Low':
+            st.write("The model suggests a low risk of suicide ideation. However, any level of risk should be taken seriously.")
+        elif interpreted_risk == 'Moderate':
+            st.write("The model indicates a moderate risk of suicide ideation. It's advisable to seek professional help or support.")
+        else:
+            st.write("The model indicates a high risk of suicide ideation. Immediate professional help and support are strongly recommended.")
+        
+        st.write("**Important**: This assessment is based on a machine learning model and should not be considered as a substitute for professional medical advice, diagnosis, or treatment. If you or someone you know is experiencing thoughts of suicide, please seek immediate help from a qualified mental health professional or contact a suicide prevention hotline.")
+
+st.sidebar.write("Note: This is a demonstration app. The model results are simulated and may not reflect actual performance.")
