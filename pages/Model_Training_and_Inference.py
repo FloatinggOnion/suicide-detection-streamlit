@@ -4,17 +4,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.naive_bayes import GaussianNB
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
 
-from utils import show_code
+# Page configuration
+st.set_page_config(page_title="Suicide Ideation Prediction", layout="wide")
 
-# Define questions and their multiple-choice options
-QUESTIONS = {
+# Define questions and options
+questions = {
     'q1': {
         'text': "What level are you?",
         'options': ["1: 100", "2: 200", "3: 300", "4: 400", "5: 500"]
@@ -98,29 +98,42 @@ QUESTIONS = {
     
 }
 
+# Define metrics
+metrics = ['accuracy', 'precision_weighted', 'recall_weighted', 'f1_weighted', 'roc_auc_ovr']
+
 # Load and preprocess data
 @st.cache_data
 def load_data():
     data = pd.read_csv('suiciderisk.csv')
-    
     numeric_data = data.select_dtypes(include='number')
-    data['response'] = numeric_data.mean(axis=1).round().astype(int)
+    data['total_score'] = numeric_data.sum(axis=1)
     
-    def map_risk(response):
-        if response in [1, 2]:
+    def map_risk(total_score):
+        low_risk_range = range(20, 41)
+        medium_risk_range = range(41, 61)
+        high_risk_range = range(61, 101)
+        
+        if total_score in low_risk_range:
             return 'Low_risk'
-        elif response == 3:
+        elif total_score in medium_risk_range:
             return 'Medium_risk'
-        elif response in [4, 5]:
+        elif total_score in high_risk_range:
             return 'High_risk'
+        else:
+            return 'Unknown_risk'
     
-    data['risk_category'] = data['response'].apply(map_risk)
+    data['risk_category'] = data['total_score'].apply(map_risk)
     
     le = LabelEncoder()
     for column in data.select_dtypes(include=['object']).columns:
         data[column] = le.fit_transform(data[column])
     
-    return data
+    X = data.drop(['total_score', 'risk_category'], axis=1)
+    y = data['risk_category']
+    
+    return X, y, data
+
+X, y, data = load_data()
 
 # Train models
 @st.cache_resource
@@ -133,50 +146,32 @@ def train_models(X, y):
         'Random Forest': RandomForestClassifier(),
         'Logistic Regression': LogisticRegression(max_iter=500)
     }
-    
-    results = {}
-    for name, model in models.items():
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-        results[name] = {
-            'accuracy': accuracy_score(y_test, y_pred),
-            'precision': precision_score(y_test, y_pred, average='weighted'),
-            'recall': recall_score(y_test, y_pred, average='weighted'),
-            'f1': f1_score(y_test, y_pred, average='weighted'),
-            'roc_auc': roc_auc_score(y_test, model.predict_proba(X_test)[:, 1], average='weighted', multi_class='ovr')
-        }
-    
-    average_scores = {name: sum(scores.values()) / len(scores) for name, scores in results.items()}
-    best_model_name = max(average_scores, key=average_scores.get)
-    best_model = models[best_model_name]
-    
-    return best_model, best_model_name, results, average_scores
 
-# Visualization function for model results
-def plot_results(results):
-    fig, ax = plt.subplots(figsize=(12, 6))
+    results = {}
+    fitted_models = {}
     
-    metrics = list(next(iter(results.values())).keys())
-    x = np.arange(len(metrics))
-    width = 0.2
-    
-    for i, (model, scores) in enumerate(results.items()):
-        ax.bar(x + i*width, list(scores.values()), width, label=model)
-    
-    ax.set_ylabel('Score')
-    ax.set_title('Model Performance Comparison')
-    ax.set_xticks(x + width * 1.5)
-    ax.set_xticklabels(metrics)
-    ax.legend(loc='best')
-    
-    return fig
+    for model_name, model in models.items():
+        print(f"Training {model_name}...")
+        model.fit(X_train, y_train)
+        fitted_models[model_name] = model
+        
+        model_results = {}
+        for metric in metrics:
+            cv_scores = cross_val_score(model, X, y, cv=3, scoring=metric)
+            model_results[metric] = cv_scores.mean()
+
+        results[model_name] = model_results
+
+    average_scores = {model_name: sum(scores.values()) / len(scores) for model_name, scores in results.items()}
+    best_model_name = max(average_scores, key=average_scores.get)
+
+    return results, average_scores, best_model_name, fitted_models
+
+results, average_scores, best_model_name, fitted_models = train_models(X, y)
 
 # Interpret risk function
 def interpret_risk(risk_category, probabilities):
     risk_levels = {
-        0: 'Low',
-        1: 'Moderate',
-        2: 'High',
         'Low_risk': 'Low',
         'Medium_risk': 'Moderate',
         'High_risk': 'High'
@@ -209,71 +204,111 @@ def plot_risk_probabilities(probabilities):
     
     return fig
 
-# Main app
-def main():
-    st.title('Suicide Ideation Risk Assessment Model')
-    
-    data = load_data()
-    X = data.drop(['response', 'risk_category'], axis=1)
-    y = data['risk_category']
-    
-    best_model, best_model_name, results, average_scores = train_models(X, y)
-    
-    page = st.sidebar.radio('Choose a page', ['Model Results', 'Risk Assessment'])
-    
-    if page == 'Model Results':
-        st.header('Model Training Results')
-        st.pyplot(plot_results(results))
-        
-        st.subheader('Detailed Results')
-        st.write(pd.DataFrame(results).T)
-        
-        st.subheader('Average Scores')
-        st.write(pd.DataFrame.from_dict(average_scores, orient='index', columns=['Average Score']))
-        
-        st.subheader('Best Model')
-        st.write(f"The best performing model is: {best_model_name}")
-        st.write(f"Average score: {average_scores[best_model_name]:.4f}")
-        
-    elif page == 'Risk Assessment':
-        st.header('Suicide Ideation Risk Assessment')
-        st.write(f"Using the best model: {best_model_name}")
-        
-        input_data = {}
-        for column, question in zip(X.columns, QUESTIONS.values()):
-            st.write(question['text'])
-            with st.expander("Options"):
-                for option in question['options']:
-                    st.write(option)
-            input_data[column] = st.number_input(f"Enter value for {column}", min_value=1, max_value=5, value=1, step=1)
-        
-        if st.button('Assess Risk'):
-            input_df = pd.DataFrame([input_data])
-            
-            prediction = best_model.predict(input_df)[0]
-            probabilities = dict(zip(best_model.classes_, best_model.predict_proba(input_df)[0]))
-            
-            interpreted_risk, confidence = interpret_risk(prediction, probabilities)
-            
-            st.subheader('Risk Assessment Results')
-            st.write(f'Predicted Risk Level: **{interpreted_risk}**')
-            st.write(f'Assessment Confidence: **{confidence}**')
-            
-            st.write('### Risk Probability Breakdown')
-            st.pyplot(plot_risk_probabilities(probabilities))
-            
-            st.write('### Interpretation')
-            if interpreted_risk == 'Low':
-                st.write("The model suggests a low risk of suicide ideation. However, any level of risk should be taken seriously.")
-            elif interpreted_risk == 'Moderate':
-                st.write("The model indicates a moderate risk of suicide ideation. It's advisable to seek professional help or support.")
-            else:
-                st.write("The model indicates a high risk of suicide ideation. Immediate professional help and support are strongly recommended.")
-            
-            st.write("**Important**: This assessment is based on a machine learning model and should not be considered as a substitute for professional medical advice, diagnosis, or treatment. If you or someone you know is experiencing thoughts of suicide, please seek immediate help from a qualified mental health professional or contact a suicide prevention hotline.")
+# Sidebar for navigation
+page = st.sidebar.radio("Navigate", ["Model Results", "Test Best Model"])
 
+if page == "Model Results":
+    st.header("Suicide Ideation Prediction Model Results")
 
-show_code(main)
+    # Visualization options
+    viz_type = st.selectbox("Select Visualization", ["Vertical Bar Chart", "Horizontal Bar Chart", "Individual Metrics"])
 
-if __name__ == '__main__':
-    main()
+    if viz_type == "Vertical Bar Chart":
+        fig, ax = plt.subplots(figsize=(10, 6))
+        x = np.arange(len(results))
+        width = 0.15
+        
+        for i, metric in enumerate(metrics):
+            scores = [results[model][metric] for model in results]
+            ax.bar(x + i*width, scores, width, label=metric)
+        
+        ax.set_xlabel('Machine Learning Models')
+        ax.set_ylabel('Score')
+        ax.set_title('Evaluation Metrics for Suicide Ideation Prediction Models')
+        ax.set_xticks(x + 2*width)
+        ax.set_xticklabels(results.keys())
+        ax.legend()
+        plt.tight_layout()
+        st.pyplot(fig)
+
+    elif viz_type == "Horizontal Bar Chart":
+        fig, ax = plt.subplots(figsize=(10, 6))
+        y_pos = np.arange(len(results))
+        metrics_scores = {metric: [results[model][metric] for model in results] for metric in metrics}
+        
+        bar_width = 0.15
+        for i, metric in enumerate(metrics):
+            ax.barh(y_pos + i*bar_width, metrics_scores[metric], bar_width, label=metric)
+        
+        ax.set_xlabel('Score')
+        ax.set_ylabel('Machine Learning Models')
+        ax.set_title('Evaluation Metrics for Suicide Ideation Prediction Models')
+        ax.set_yticks(y_pos + 2*bar_width)
+        ax.set_yticklabels(results.keys())
+        ax.legend()
+        plt.tight_layout()
+        st.pyplot(fig)
+
+    else:  # Individual Metrics
+        fig, axs = plt.subplots(nrows=len(metrics), ncols=1, figsize=(10, 15))
+        for i, metric in enumerate(metrics):
+            ax = axs[i]
+            ax.barh(list(results.keys()), [results[model][metric] for model in results], color=plt.cm.Paired(np.arange(len(results))))
+            ax.set_xlabel(metric)
+            ax.set_xlim([0, 1.05])
+            ax.invert_yaxis()
+        plt.tight_layout()
+        st.pyplot(fig)
+
+    st.subheader('Detailed Results')
+    st.write(pd.DataFrame(results).T)
+    
+    st.subheader('Average Scores')
+    st.write(pd.DataFrame.from_dict(average_scores, orient='index', columns=['Average Score']))
+    
+    st.subheader('Best Model')
+    st.write(f"The best performing model is: {best_model_name}")
+    st.write(f"Average score: {average_scores[best_model_name]:.4f}")
+
+else:  # Test Best Model page
+    st.header(f"Test Best Model: {best_model_name}")
+
+    # Create input fields for each feature
+    st.subheader("Enter test data:")
+    input_data = {}
+    for column, question in zip(X.columns, questions.values()):
+        st.write(question['text'])
+        with st.expander("Options"):
+            for option in question['options']:
+                st.write(option)
+        input_data[column] = st.number_input(f"Enter value for {column}", min_value=1, max_value=5, value=1, step=1)
+
+    if st.button("Predict"):
+        input_df = pd.DataFrame([input_data])
+        total_score = input_df.sum(axis=1).values[0]
+        
+        st.subheader("Model Prediction:")
+        best_model = fitted_models[best_model_name]
+        
+        # Map the total score to a risk category
+        if total_score in range(20, 41):
+            prediction = 'Low_risk'
+        elif total_score in range(41, 61):
+            prediction = 'Medium_risk'
+        elif total_score in range(61, 101):
+            prediction = 'High_risk'
+        else:
+            prediction = 'Unknown_risk'
+        
+        probabilities = dict(zip(best_model.classes_, best_model.predict_proba(input_df)[0]))
+        interpreted_risk, confidence = interpret_risk(prediction, probabilities)
+        
+        st.subheader('Risk Assessment Results')
+        st.write(f'Total Score: **{total_score}**')
+        st.write(f'Predicted Risk Level: **{interpreted_risk}**')
+        st.write(f'Assessment Confidence: **{confidence}**')
+        
+        st.write('### Risk Probability Breakdown')
+        st.pyplot(plot_risk_probabilities(probabilities))
+        
+        st.write('### Interpretation')
