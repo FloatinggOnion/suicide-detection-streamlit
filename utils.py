@@ -27,18 +27,6 @@ from googleapiclient.discovery import build
 import os
 import base64
 
-SCOPES = [
-        "https://www.googleapis.com/auth/gmail.send"
-    ]
-
-
-flow = InstalledAppFlow.from_client_secrets_file(
-            'credentials.json', SCOPES)
-
-creds = flow.run_local_server(port=0)
-
-service = build('gmail', 'v1', credentials=creds)
-
 def show_code(demo):
     """Showing the code of the demo."""
     show_code = st.sidebar.checkbox("Show code", False)
@@ -52,38 +40,35 @@ def show_code(demo):
 
 def send_email(recipient, subject, body):
     # Email configuration
-    # sender_email = os.environ.get('SENDER_EMAIL')
-    # sender_password = os.environ.get('SENDER_PASSWORD')
-    # smtp_server = "smtp.gmail.com"
-    # smtp_port = 587  # SSL port for Gmail
+    sender_email = os.environ.get('SENDER_EMAIL')
+    sender_password = os.environ.get('SENDER_PASSWORD')
+    smtp_server = "smtp.gmail.com"
+    smtp_port = 587  # SSL port for Gmail
+
 
     # Create message
     message = MIMEMultipart()
-    # message["From"] = sender_email
+    message["From"] = sender_email
     message["To"] = recipient
     message["Subject"] = subject
 
     # Add body to email
     message.attach(MIMEText(body, "plain"))
 
-    create_message = {'raw': base64.urlsafe_b64encode(message.as_bytes()).decode()}
-
     try:
         # Create secure SSL context
-        # context = ssl.create_default_context()
+        context = ssl.create_default_context()
 
-        # # Create SMTP_SSL session
-        # with smtplib.SMTP(smtp_server, smtp_port) as server:
-        #     server.starttls(context=context)
-        #     server.login(sender_email, sender_password)
+        # Create SMTP_SSL session
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls(context=context)
+            server.login(sender_email, sender_password)
             
-        #     # Send email
-        #     server.sendmail(message)
+            # Send email
+            server.sendmail(sender_email, recipient, message.as_string())
         
-        # print(f"Email sent successfully to {recipient}")
-        # return True
-        message = (service.users().messages().send(userId="me", body=create_message).execute())
-        print(F'sent message to {message} Message Id: {message["id"]}')
+        print(f"Email sent successfully to {recipient}")
+        return True
     except Exception as e:
         print(f"Failed to send email to {recipient}. Error: {str(e)}")
         return False
