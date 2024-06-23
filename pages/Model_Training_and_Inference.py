@@ -11,14 +11,14 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 
-from utils import show_code
+from utils import show_code, send_assessment_emails
 
 # Define questions and their multiple-choice options
 QUESTIONS = {
-    'q1': {
-        'text': "What level are you?",
-        'options': ["1: 100", "2: 200", "3: 300", "4: 400", "5: 500"]
-    },
+    # 'q1': {
+    #     'text': "What level are you?",
+    #     'options': ["1: 100", "2: 200", "3: 300", "4: 400", "5: 500"]
+    # },
     'q2': {
         'text': "What is your gender?",
         'options': ["1: Male", "2: Female"]
@@ -102,6 +102,9 @@ QUESTIONS = {
 @st.cache_data
 def load_data():
     data = pd.read_csv('suiciderisk.csv')
+
+    # Drop the first column
+    data = data.iloc[:, 1:]
     
     numeric_data = data.select_dtypes(include='number')
     data['response'] = numeric_data.mean(axis=1).round().astype(int)
@@ -209,6 +212,11 @@ def plot_risk_probabilities(probabilities):
 # Main app
 def main():
     st.title('Suicide Ideation Risk Assessment Model')
+
+    # Add email inputs to sidebar
+    st.sidebar.header("Contact Information")
+    user_email = st.sidebar.text_input("Your email address")
+    kin_email = st.sidebar.text_input("Next of kin's email address (optional)")
     
     data = load_data()
     X = data.drop(['response', 'risk_category'], axis=1)
@@ -237,7 +245,7 @@ def main():
         st.write(f"Using the best model: {best_model_name}")
         
         input_data = {}
-        for column, question in zip(X.columns, QUESTIONS.values()):
+        for column, question in zip(X.columns, list(QUESTIONS.values())):
             st.write(question['text'])
             with st.expander("Options"):
                 for option in question['options']:
@@ -261,13 +269,21 @@ def main():
             
             st.write('### Interpretation')
             if interpreted_risk == 'Low':
-                st.write("The model suggests a low risk of suicide ideation. However, any level of risk should be taken seriously.")
+                interpretation = "The model suggests a low risk of suicide ideation. However, any level of risk should be taken seriously."
             elif interpreted_risk == 'Moderate':
-                st.write("The model indicates a moderate risk of suicide ideation. It's advisable to seek professional help or support.")
+                interpretation = "The model indicates a moderate risk of suicide ideation. It's advisable to seek professional help or support."
             else:
-                st.write("The model indicates a high risk of suicide ideation. Immediate professional help and support are strongly recommended.")
+                interpretation = "The model indicates a high risk of suicide ideation. Immediate professional help and support are strongly recommended."
             
+            st.write(interpretation)
+
             st.write("**Important**: This assessment is based on a machine learning model and should not be considered as a substitute for professional medical advice, diagnosis, or treatment. If you or someone you know is experiencing thoughts of suicide, please seek immediate help from a qualified mental health professional or contact a suicide prevention hotline.")
+            
+            # Send emails if provided
+            if user_email or kin_email:
+                send_assessment_emails(user_email=user_email, kin_email=kin_email, interpreted_risk=interpreted_risk, confidence=confidence, interpretation=interpretation)
+
+            
 
 show_code(main)
 
